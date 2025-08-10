@@ -6,10 +6,12 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.*;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.documentfile.provider.DocumentFile;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,7 +36,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView txtScanStatus, txtResult;
 
     private ArrayList<Uri> backupFolders = new ArrayList<>();
-    private ArrayAdapter<String> folderAdapter;
+    private ArrayAdapter<Uri> folderAdapter;
 
     private BackupCoordinator coordinator;
     private DeviceManager deviceManager;
@@ -58,7 +60,7 @@ public class MainActivity extends AppCompatActivity {
         txtScanStatus = findViewById(R.id.txtScanStatus);
         txtResult = findViewById(R.id.txtResult);
 
-        // Load SMB preferences
+        // Load SMB prefs into coordinator
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         coordinator = new BackupCoordinator(
                 this,
@@ -71,11 +73,11 @@ public class MainActivity extends AppCompatActivity {
                 getFileFilterFromPrefs()
         );
 
-        // Load and display folders in ListView
+        // Load folder list
         loadBackupFolders();
         listFolders.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
 
-        // Button actions
+        // Buttons
         btnSelectFolder.setOnClickListener(v -> onAddBackupFolder());
         btnRemoveFolder.setOnClickListener(v -> onRemoveSelectedFolder());
         btnFileFilter.setOnClickListener(v -> onConfigureFileTypes());
@@ -83,7 +85,6 @@ public class MainActivity extends AppCompatActivity {
         btnAvailableDevices.setOnClickListener(v -> showAvailableDevices());
         btnBackup.setOnClickListener(v -> manualBackup());
 
-        // Permissions request
         ensurePermissions();
     }
 
@@ -94,12 +95,36 @@ public class MainActivity extends AppCompatActivity {
         refreshFolderListUI();
     }
 
+    /** Custom adapter: bold folder name and path in brackets */
     private void refreshFolderListUI() {
-        List<String> labels = new ArrayList<>();
-        for (Uri uri : backupFolders) {
-            labels.add(uri.toString());
-        }
-        folderAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_single_choice, labels);
+        folderAdapter = new ArrayAdapter<Uri>(this, R.layout.item_backup_folder, backupFolders) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                View row = convertView;
+                if (row == null) {
+                    row = getLayoutInflater().inflate(R.layout.item_backup_folder, parent, false);
+                }
+                TextView nameView = row.findViewById(R.id.txtFolderName);
+                TextView pathView = row.findViewById(R.id.txtFolderPath);
+
+                Uri uri = getItem(position);
+                if (uri != null) {
+                    String folderName;
+                    DocumentFile doc = DocumentFile.fromTreeUri(MainActivity.this, uri);
+                    if (doc != null && doc.getName() != null) {
+                        folderName = doc.getName();
+                    } else {
+                        List<String> segments = uri.getPathSegments();
+                        folderName = segments.isEmpty()
+                                ? uri.toString()
+                                : segments.get(segments.size() - 1);
+                    }
+                    nameView.setText(folderName);
+                    pathView.setText("(" + uri.toString() + ")");
+                }
+                return row;
+            }
+        };
         listFolders.setAdapter(folderAdapter);
     }
 
@@ -143,15 +168,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** === File Filter Handling === */
-
     private void onConfigureFileTypes() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String existing = prefs.getString(KEY_BACKUP_FILE_FILTER, "");
-
         EditText input = new EditText(this);
         input.setText(existing);
         input.setHint("jpg,png,docx...");
-
         new AlertDialog.Builder(this)
                 .setTitle("Set File Type Filter (comma separated)")
                 .setView(input)
@@ -171,10 +193,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** === SMB Credentials Handling === */
-
     private void onEditSMBCredentials() {
         View dlgView = getLayoutInflater().inflate(R.layout.dialog_smb_credentials, null);
-
         EditText edtUser = dlgView.findViewById(R.id.edtUser);
         EditText edtPass = dlgView.findViewById(R.id.edtPass);
         EditText edtShare = dlgView.findViewById(R.id.edtShare);
@@ -206,7 +226,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** === Device Scan & Backup === */
-
     private void showAvailableDevices() {
         layoutScanProgress.setVisibility(View.VISIBLE);
         coordinator.scanDevicesWithProgress(
@@ -253,12 +272,17 @@ public class MainActivity extends AppCompatActivity {
     private void manualBackup() {
         coordinator.setBackupFolderUris(new ArrayList<>(backupFolders));
         coordinator.setFileFilter(getFileFilterFromPrefs());
-        coordinator.startBackup((devices, done) -> runOnUiThread(() -> showDeviceSelectionDialog(devices, done)),
+        coordinator.startBackup((devices, done) -> runOnUiThread(() -> {
+                    if (devices == null || devices.isEmpty()) {
+                        txtResult.setText("No devices connected.");
+                    } else {
+                        showDeviceSelectionDialog(devices, done);
+                    }
+                }),
                 status -> runOnUiThread(() -> txtResult.setText(status)));
     }
 
     /** === Misc === */
-
     private void ensurePermissions() {
         String[] perms = {
                 Manifest.permission.INTERNET,
