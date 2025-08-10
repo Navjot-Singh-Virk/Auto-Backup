@@ -3,26 +3,23 @@ package com.navjot.autobackup;
 import android.content.Context;
 import android.net.Uri;
 import android.util.Log;
-
 import androidx.documentfile.provider.DocumentFile;
-
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * BackupCoordinator
  * =================
- * Coordinates backup workflow:
+ * Orchestrates backup process:
  *  - Validates folders and connectivity.
- *  - Scans network for devices.
- *  - Deals with whitelist/last-known device logic.
- *  - Invokes FileBackupManager with file filter and retry logic.
- *  - Designed to be shared by manual and automatic backups.
+ *  - Scans for devices using NetworkMonitor.
+ *  - Handles whitelist/last-known device with DeviceManager.
+ *  - Invokes FileBackupManager with file filtering.
+ *  - Supports UI progress bar updates via scanDevicesWithProgress.
  */
 public class BackupCoordinator {
 
     private static final String TAG = "BackupCoordinator";
-
     private final Context context;
     private final NetworkMonitor networkMonitor;
     private final DeviceManager deviceManager;
@@ -30,8 +27,10 @@ public class BackupCoordinator {
     private List<Uri> backupFolderUris;
     private List<String> fileFilter;
 
-    /** Callback for progress/status reporting. */
-    public interface BackupStatusCallback { void onStatus(String message); }
+    /** Callback for progress/status reporting to UI or logs. */
+    public interface BackupStatusCallback {
+        void onStatus(String message);
+    }
 
     public BackupCoordinator(Context context,
                              String username,
@@ -61,7 +60,6 @@ public class BackupCoordinator {
         this.fileFilter = fileTypes != null ? fileTypes : new ArrayList<>();
     }
 
-    /** Called from MainActivity when user saves new SMB credentials. */
     public void setSmbParams(String user, String pass, String dom, String share, String remoteDir) {
         this.username = user;
         this.password = pass;
@@ -70,6 +68,9 @@ public class BackupCoordinator {
         this.remoteDir = remoteDir;
     }
 
+    /**
+     * Start the backup process using whitelist, scan and selection callback as appropriate.
+     */
     public void startBackup(DeviceManager.DeviceSelectionCallback selectionCallback,
                             BackupStatusCallback statusCallback) {
         if (backupFolderUris.isEmpty()) {
@@ -80,12 +81,16 @@ public class BackupCoordinator {
             logStatus(statusCallback, "Not connected to Wi-Fi or hotspot. Skipping backup.");
             return;
         }
+
+        // Try last chosen device first
         DeviceManager.LastChosenDevice lastChosen = deviceManager.getLastChosenDevice();
         if (lastChosen != null && networkMonitor.isDeviceReachable(lastChosen)) {
             logStatus(statusCallback, "Using last chosen device " + lastChosen.ip);
             runBackup(lastChosen.ip, statusCallback);
             return;
         }
+
+        // Otherwise scan for devices (no progress UI here)
         logStatus(statusCallback, "Scanning subnet for devices...");
         networkMonitor.scanSubnetAsync(devices -> {
             List<NetworkMonitor.DeviceInfo> whitelisted = deviceManager.getWhitelistedDevices(devices);
@@ -108,6 +113,9 @@ public class BackupCoordinator {
         });
     }
 
+    /**
+     * Internal method to perform file backup to specified device IP.
+     */
     private void runBackup(String ip, BackupStatusCallback statusCallback) {
         logStatus(statusCallback, "Starting backup to " + ip + "...");
         FileBackupManager fbm = new FileBackupManager(context, ip, shareName, username, password, domain, remoteDir);
@@ -127,7 +135,17 @@ public class BackupCoordinator {
         if (cb != null) cb.onStatus(msg);
     }
 
+    /** Original scan method (no progress reporting). */
     public void scanDevices(NetworkMonitor.ScanCallback callback) {
         networkMonitor.scanSubnetAsync(callback);
+    }
+
+    /**
+     * New: Scan method with progress reporting.
+     * Pass in a NetworkMonitor.ScanProgressCallback to update a UI ProgressBar.
+     */
+    public void scanDevicesWithProgress(NetworkMonitor.ScanProgressCallback progressCb,
+                                        NetworkMonitor.ScanCallback callback) {
+        networkMonitor.scanSubnetAsync(progressCb, callback);
     }
 }

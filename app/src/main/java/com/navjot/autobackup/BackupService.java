@@ -14,9 +14,16 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * BackupService
+ * =============
+ * Runs periodic automatic backups in the background.
+ */
 public class BackupService extends Service {
+
     private static final String TAG = "BackupService";
     private static final long BACKUP_INTERVAL_MS = 30 * 60 * 1000L;
+
     public static DeviceManager.DeviceSelectionCallback deviceSelectionCallback;
 
     private final Handler handler = new Handler();
@@ -31,6 +38,7 @@ public class BackupService extends Service {
         handler.post(backupTask);
     }
 
+    /** Initialise BackupCoordinator from saved prefs. */
     private void loadCoordinator() {
         SharedPreferences prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
         String user = prefs.getString(MainActivity.KEY_SMB_USER, "yourUsername");
@@ -38,10 +46,20 @@ public class BackupService extends Service {
         String share = prefs.getString(MainActivity.KEY_SMB_SHARE, "sharedfolder");
         String domain = prefs.getString(MainActivity.KEY_SMB_DOMAIN, "");
         String remoteDir = prefs.getString(MainActivity.KEY_REMOTE_DIR, "");
-        coordinator = new BackupCoordinator(this, user, pass, domain, share, remoteDir,
-                getBackupFolderUris(), getFileFilter());
+
+        coordinator = new BackupCoordinator(
+                this,
+                user,
+                pass,
+                domain,
+                share,
+                remoteDir,
+                getBackupFolderUris(),
+                getFileFilter()
+        );
     }
 
+    /** Load backup folder URIs from prefs. */
     private List<Uri> getBackupFolderUris() {
         SharedPreferences prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
         String urisString = prefs.getString(MainActivity.KEY_BACKUP_FOLDERS, "");
@@ -54,12 +72,16 @@ public class BackupService extends Service {
         return uris;
     }
 
+    /** Load file type filters from prefs. */
     private List<String> getFileFilter() {
         SharedPreferences prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
         String types = prefs.getString(MainActivity.KEY_BACKUP_FILE_FILTER, "");
-        return types.isEmpty() ? new ArrayList<>() : new ArrayList<>(Arrays.asList(types.split(",")));
+        return types.isEmpty() ?
+                new ArrayList<>() :
+                new ArrayList<>(Arrays.asList(types.split(",")));
     }
 
+    /** Task runnable that triggers backup periodically. */
     private final Runnable backupTask = new Runnable() {
         @Override
         public void run() {
@@ -72,6 +94,7 @@ public class BackupService extends Service {
         }
     };
 
+    /** Check if service has minimum permissions to run backup. */
     private boolean hasRequiredPermissions() {
         return ContextCompat.checkSelfPermission(this, android.Manifest.permission.INTERNET) == android.content.pm.PackageManager.PERMISSION_GRANTED
                 && ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_NETWORK_STATE) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -80,6 +103,7 @@ public class BackupService extends Service {
                 || ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED);
     }
 
+    /** Start backup run if no other backup is currently executing. */
     private void startBackupIfIdle() {
         synchronized (backupLock) {
             if (isBackupRunning) {
@@ -88,8 +112,10 @@ public class BackupService extends Service {
             }
             isBackupRunning = true;
         }
+
         loadCoordinator();
         coordinator.startBackup(deviceSelectionCallback, msg -> Log.i(TAG, msg));
+
         synchronized (backupLock) {
             isBackupRunning = false;
         }
@@ -102,5 +128,7 @@ public class BackupService extends Service {
     }
 
     @Override
-    public IBinder onBind(Intent intent) { return null; }
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
 }

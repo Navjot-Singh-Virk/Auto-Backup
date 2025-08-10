@@ -13,6 +13,7 @@
         android:fillViewport="true">
 
         <LinearLayout
+            android:layout_marginTop="64dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -67,6 +68,33 @@
                 android:layout_height="wrap_content"
                 android:text="Backup Now"
                 android:layout_marginBottom="16dp" />
+
+            <!-- Scan Progress Layout -->
+            <LinearLayout
+                android:id="@+id/layoutScanProgress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone"
+                android:layout_marginBottom="12dp">
+
+                <ProgressBar
+                    android:id="@+id/progressScan"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="253"
+                    android:progress="0" />
+
+                <TextView
+                    android:id="@+id/txtScanStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Scanning network..."
+                    android:paddingStart="8dp"
+                    android:textSize="14sp" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/txtResult"
