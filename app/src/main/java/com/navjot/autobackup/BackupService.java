@@ -7,9 +7,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
-
 import androidx.core.content.ContextCompat;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -23,7 +21,6 @@ public class BackupService extends Service {
 
     private static final String TAG = "BackupService";
     private static final long BACKUP_INTERVAL_MS = 30 * 60 * 1000L;
-
     public static DeviceManager.DeviceSelectionCallback deviceSelectionCallback;
 
     private final Handler handler = new Handler();
@@ -114,11 +111,14 @@ public class BackupService extends Service {
         }
 
         loadCoordinator();
-        coordinator.startBackup(deviceSelectionCallback, msg -> Log.i(TAG, msg));
 
-        synchronized (backupLock) {
-            isBackupRunning = false;
-        }
+        coordinator.startBackup(deviceSelectionCallback, msg -> {
+            Log.i(TAG, msg);
+            // After backup is finished, clear the running flag
+            synchronized (backupLock) {
+                isBackupRunning = false;
+            }
+        });
     }
 
     @Override

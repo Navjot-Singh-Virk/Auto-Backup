@@ -22,8 +22,6 @@ import java.util.concurrent.Executors;
  * NetworkMonitor
  * --------------
  * Handles detection of network state and scanning devices on subnet.
- * Supports device reachability checks by ping and MAC verification.
- * Also supports scan progress updates.
  */
 public class NetworkMonitor {
 
@@ -99,10 +97,7 @@ public class NetworkMonitor {
         return null;
     }
 
-    /**
-     * Checks if a given device is reachable by ping and MAC comparison.
-     * Overload for DeviceInfo type.
-     */
+    /** Checks if a given device is reachable by ping and MAC comparison. */
     public boolean isDeviceReachable(DeviceInfo device) {
         try {
             boolean reachable = InetAddress.getByName(device.ip).isReachable(200);
@@ -113,9 +108,7 @@ public class NetworkMonitor {
         }
     }
 
-    /**
-     * Checks if a DeviceManager.LastChosenDevice is reachable; overload for convenience.
-     */
+    /** Checks if a DeviceManager.LastChosenDevice is reachable; overload for convenience. */
     public boolean isDeviceReachable(DeviceManager.LastChosenDevice device) {
         if (device == null || device.ip == null || device.mac == null) return false;
         try {
@@ -152,13 +145,13 @@ public class NetworkMonitor {
         int total = 253; // Scanning .2 to .254
         List<DeviceInfo> found = Collections.synchronizedList(new ArrayList<>());
         ExecutorService pool = Executors.newFixedThreadPool(20);
-
         for (int i = 2; i <= 254; i++) {
             final int currentIndex = i - 1;
             String ip = baseIp + i;
             pool.submit(() -> {
                 if (progressCb != null) {
-                    progressCb.onProgress("Scanning " + ip, currentIndex, total);
+                    new Handler(Looper.getMainLooper()).post(() ->
+                            progressCb.onProgress("Scanning " + ip, currentIndex, total));
                 }
                 if (pingIp(ip, 200)) {
                     String mac = getMacFromArp(ip);
@@ -166,7 +159,7 @@ public class NetworkMonitor {
                 }
             });
         }
-
+        // Only call shutdown after all tasks submitted
         pool.shutdown();
         new Thread(() -> {
             try {

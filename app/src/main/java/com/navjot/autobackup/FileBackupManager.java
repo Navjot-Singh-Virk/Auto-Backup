@@ -4,14 +4,15 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.util.Log;
-
 import androidx.documentfile.provider.DocumentFile;
-
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class FileBackupManager {
+
     private static final String TAG = "FileBackupManager";
     private static final String PREFS_NAME = "BackupPrefs";
     private static final String KEY_UPLOAD_HISTORY = "UploadedFilesHistory";
@@ -41,14 +42,15 @@ public class FileBackupManager {
 
     public List<DocumentFile> getNewFilesToBackup(List<Uri> folderUris, List<String> extensions) {
         List<DocumentFile> result = new ArrayList<>();
-        String history = prefs.getString(KEY_UPLOAD_HISTORY, "");
+        Set<String> historySet = getUploadHistorySet();
+
         for (Uri folderUri : folderUris) {
             DocumentFile folder = DocumentFile.fromTreeUri(context, folderUri);
             if (folder == null || !folder.isDirectory()) continue;
             for (DocumentFile file : folder.listFiles()) {
                 if (file.isFile() && matchesFilter(file, extensions)) {
                     String key = uniqueFileKey(folderUri, file);
-                    if (!history.contains(key)) {
+                    if (!historySet.contains(key)) {
                         result.add(file);
                     }
                 }
@@ -58,7 +60,7 @@ public class FileBackupManager {
     }
 
     public int backupFiles(List<DocumentFile> files) {
-        String history = prefs.getString(KEY_UPLOAD_HISTORY, "");
+        Set<String> historySet = getUploadHistorySet();
         int successCount = 0;
         for (DocumentFile file : files) {
             boolean success = false;
@@ -70,6 +72,7 @@ public class FileBackupManager {
                         Log.w(TAG, "Cannot open file: " + file.getName());
                         break;
                     }
+
                     success = smbClient.uploadFile(
                             serverIp,
                             shareName,
@@ -89,8 +92,8 @@ public class FileBackupManager {
             }
             if (success) {
                 successCount++;
-                history += uniqueFileKeyFromName(file) + ",";
-                prefs.edit().putString(KEY_UPLOAD_HISTORY, history).apply();
+                historySet.add(uniqueFileKeyFromName(file));
+                saveUploadHistorySet(historySet);
             }
         }
         return successCount;
@@ -112,5 +115,26 @@ public class FileBackupManager {
 
     private String uniqueFileKeyFromName(DocumentFile file) {
         return file.getName() + "_" + file.lastModified();
+    }
+
+    private Set<String> getUploadHistorySet() {
+        String history = prefs.getString(KEY_UPLOAD_HISTORY, "");
+        Set<String> set = new HashSet<>();
+        if (!history.isEmpty()) {
+            String[] keys = history.split(",");
+            for (String key : keys) {
+                if (!key.trim().isEmpty()) set.add(key);
+            }
+        }
+        return set;
+    }
+
+    private void saveUploadHistorySet(Set<String> set) {
+        StringBuilder sb = new StringBuilder();
+        for (String key : set) {
+            if (sb.length() > 0) sb.append(",");
+            sb.append(key);
+        }
+        prefs.edit().putString(KEY_UPLOAD_HISTORY, sb.toString()).apply();
     }
 }

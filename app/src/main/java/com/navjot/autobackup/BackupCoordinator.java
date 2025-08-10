@@ -10,19 +10,16 @@ import java.util.List;
 /**
  * BackupCoordinator
  * =================
- * Orchestrates backup process:
- *  - Validates folders and connectivity.
- *  - Scans for devices using NetworkMonitor.
- *  - Handles whitelist/last-known device with DeviceManager.
- *  - Invokes FileBackupManager with file filtering.
- *  - Supports UI progress bar updates via scanDevicesWithProgress.
+ * Orchestrates backup process, device scanning, and file backup.
  */
 public class BackupCoordinator {
 
     private static final String TAG = "BackupCoordinator";
+
     private final Context context;
     private final NetworkMonitor networkMonitor;
     private final DeviceManager deviceManager;
+
     private String username, password, domain, shareName, remoteDir;
     private List<Uri> backupFolderUris;
     private List<String> fileFilter;
@@ -77,6 +74,7 @@ public class BackupCoordinator {
             logStatus(statusCallback, "No backup folders selected. Aborting backup.");
             return;
         }
+
         if (!(networkMonitor.isOnWifi() || networkMonitor.isHotspotOn())) {
             logStatus(statusCallback, "Not connected to Wi-Fi or hotspot. Skipping backup.");
             return;
@@ -90,7 +88,7 @@ public class BackupCoordinator {
             return;
         }
 
-        // Otherwise scan for devices (no progress UI here)
+        // Otherwise scan for devices
         logStatus(statusCallback, "Scanning subnet for devices...");
         networkMonitor.scanSubnetAsync(devices -> {
             List<NetworkMonitor.DeviceInfo> whitelisted = deviceManager.getWhitelistedDevices(devices);
@@ -113,9 +111,7 @@ public class BackupCoordinator {
         });
     }
 
-    /**
-     * Internal method to perform file backup to specified device IP.
-     */
+    /** Internal method to perform file backup to specified device IP. */
     private void runBackup(String ip, BackupStatusCallback statusCallback) {
         logStatus(statusCallback, "Starting backup to " + ip + "...");
         FileBackupManager fbm = new FileBackupManager(context, ip, shareName, username, password, domain, remoteDir);
@@ -140,8 +136,7 @@ public class BackupCoordinator {
         networkMonitor.scanSubnetAsync(callback);
     }
 
-    /**
-     * New: Scan method with progress reporting.
+    /** New: Scan method with progress reporting.
      * Pass in a NetworkMonitor.ScanProgressCallback to update a UI ProgressBar.
      */
     public void scanDevicesWithProgress(NetworkMonitor.ScanProgressCallback progressCb,

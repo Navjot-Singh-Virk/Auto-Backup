@@ -1,12 +1,12 @@
 package com.navjot.autobackup;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.*;
-
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -17,7 +17,6 @@ import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
-    // ==== BEGIN CONSTANTS USABLE FROM OTHER CLASSES ====
     public static final String PREFS_NAME = "BackupPrefs";
     public static final String KEY_SMB_USER = "smb_user";
     public static final String KEY_SMB_PASS = "smb_pass";
@@ -26,14 +25,17 @@ public class MainActivity extends AppCompatActivity {
     public static final String KEY_REMOTE_DIR = "remote_dir";
     public static final String KEY_BACKUP_FOLDERS = "backup_folder_uris";
     public static final String KEY_BACKUP_FILE_FILTER = "backup_file_filter";
-    // ==== END CONSTANTS ====
 
+    private static final int REQUEST_PICK_FOLDER = 101;
+
+    private ListView listFolders;
     private LinearLayout layoutScanProgress;
     private ProgressBar progressScan;
     private TextView txtScanStatus, txtResult;
-    private Button btnAvailableDevices, btnBackup;
 
-    // You may have more fields for folder selection, etc.
+    private ArrayList<Uri> backupFolders = new ArrayList<>();
+    private ArrayAdapter<String> folderAdapter;
+
     private BackupCoordinator coordinator;
     private DeviceManager deviceManager;
 
@@ -41,63 +43,180 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        deviceManager = new DeviceManager(this);
 
+        // Find views
+        Button btnSelectFolder = findViewById(R.id.btnSelectFolder);
+        Button btnRemoveFolder = findViewById(R.id.btnRemoveFolder);
+        Button btnFileFilter = findViewById(R.id.btnFileFilter);
+        Button btnCredentials = findViewById(R.id.btnCredentials);
+        Button btnAvailableDevices = findViewById(R.id.btnAvailableDevices);
+        Button btnBackup = findViewById(R.id.btnBackup);
+        listFolders = findViewById(R.id.listFolders);
         layoutScanProgress = findViewById(R.id.layoutScanProgress);
         progressScan = findViewById(R.id.progressScan);
         txtScanStatus = findViewById(R.id.txtScanStatus);
         txtResult = findViewById(R.id.txtResult);
-        btnAvailableDevices = findViewById(R.id.btnAvailableDevices);
-        btnBackup = findViewById(R.id.btnBackup);
 
-        deviceManager = new DeviceManager(this);
-
-        // Load SMB/user preferences for coordinator (can be updated from UI)
+        // Load SMB preferences
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String smbUser = prefs.getString(KEY_SMB_USER, "yourUsername");
-        String smbPass = prefs.getString(KEY_SMB_PASS, "yourPassword");
-        String smbShare = prefs.getString(KEY_SMB_SHARE, "sharedfolder");
-        String smbDomain = prefs.getString(KEY_SMB_DOMAIN, "");
-        String remoteDir = prefs.getString(KEY_REMOTE_DIR, "");
-
         coordinator = new BackupCoordinator(
                 this,
-                smbUser,
-                smbPass,
-                smbDomain,
-                smbShare,
-                remoteDir,
-                getBackupFolderUris(),
-                getFileFilter()
+                prefs.getString(KEY_SMB_USER, ""),
+                prefs.getString(KEY_SMB_PASS, ""),
+                prefs.getString(KEY_SMB_DOMAIN, ""),
+                prefs.getString(KEY_SMB_SHARE, ""),
+                prefs.getString(KEY_REMOTE_DIR, ""),
+                getBackupFolderUrisFromPrefs(),
+                getFileFilterFromPrefs()
         );
 
+        // Load and display folders in ListView
+        loadBackupFolders();
+        listFolders.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
+
+        // Button actions
+        btnSelectFolder.setOnClickListener(v -> onAddBackupFolder());
+        btnRemoveFolder.setOnClickListener(v -> onRemoveSelectedFolder());
+        btnFileFilter.setOnClickListener(v -> onConfigureFileTypes());
+        btnCredentials.setOnClickListener(v -> onEditSMBCredentials());
         btnAvailableDevices.setOnClickListener(v -> showAvailableDevices());
         btnBackup.setOnClickListener(v -> manualBackup());
 
+        // Permissions request
         ensurePermissions();
     }
 
-    /** Show and update progress bar and status text. */
-    private void showProgressUI(String msg, int current, int total) {
-        runOnUiThread(() -> {
-            txtScanStatus.setText(msg);
-            progressScan.setMax(total);
-            progressScan.setProgress(current);
-            layoutScanProgress.setVisibility(View.VISIBLE);
-        });
+    /** === Folder Handling === */
+
+    private void loadBackupFolders() {
+        backupFolders = new ArrayList<>(getBackupFolderUrisFromPrefs());
+        refreshFolderListUI();
     }
 
-    /** Hide the scan progress UI. */
-    private void hideProgressUI() {
-        runOnUiThread(() -> layoutScanProgress.setVisibility(View.GONE));
+    private void refreshFolderListUI() {
+        List<String> labels = new ArrayList<>();
+        for (Uri uri : backupFolders) {
+            labels.add(uri.toString());
+        }
+        folderAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_single_choice, labels);
+        listFolders.setAdapter(folderAdapter);
     }
 
-    /** Device scan and UI for listing/choosing devices, with progress bar updates. */
+    private void onAddBackupFolder() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        startActivityForResult(intent, REQUEST_PICK_FOLDER);
+    }
+
+    private void onRemoveSelectedFolder() {
+        int pos = listFolders.getCheckedItemPosition();
+        if (pos != ListView.INVALID_POSITION && pos < backupFolders.size()) {
+            backupFolders.remove(pos);
+            saveBackupFoldersToPrefs();
+            refreshFolderListUI();
+            listFolders.clearChoices();
+        }
+    }
+
+    private void saveBackupFoldersToPrefs() {
+        StringBuilder sb = new StringBuilder();
+        for (Uri u : backupFolders) {
+            if (sb.length() > 0) sb.append(",");
+            sb.append(u.toString());
+        }
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putString(KEY_BACKUP_FOLDERS, sb.toString())
+                .apply();
+    }
+
+    private List<Uri> getBackupFolderUrisFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String urisString = prefs.getString(KEY_BACKUP_FOLDERS, "");
+        List<Uri> uris = new ArrayList<>();
+        if (!urisString.isEmpty()) {
+            for (String s : urisString.split(",")) {
+                try { uris.add(Uri.parse(s)); } catch (Exception ignored) {}
+            }
+        }
+        return uris;
+    }
+
+    /** === File Filter Handling === */
+
+    private void onConfigureFileTypes() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String existing = prefs.getString(KEY_BACKUP_FILE_FILTER, "");
+
+        EditText input = new EditText(this);
+        input.setText(existing);
+        input.setHint("jpg,png,docx...");
+
+        new AlertDialog.Builder(this)
+                .setTitle("Set File Type Filter (comma separated)")
+                .setView(input)
+                .setPositiveButton("Save", (d, w) -> {
+                    prefs.edit().putString(KEY_BACKUP_FILE_FILTER,
+                            input.getText().toString().trim().replaceAll("\\s+", "")).apply();
+                    Toast.makeText(this, "File filter saved", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private List<String> getFileFilterFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String types = prefs.getString(KEY_BACKUP_FILE_FILTER, "");
+        return types.isEmpty() ? new ArrayList<>() : new ArrayList<>(Arrays.asList(types.split(",")));
+    }
+
+    /** === SMB Credentials Handling === */
+
+    private void onEditSMBCredentials() {
+        View dlgView = getLayoutInflater().inflate(R.layout.dialog_smb_credentials, null);
+
+        EditText edtUser = dlgView.findViewById(R.id.edtUser);
+        EditText edtPass = dlgView.findViewById(R.id.edtPass);
+        EditText edtShare = dlgView.findViewById(R.id.edtShare);
+        EditText edtDomain = dlgView.findViewById(R.id.edtDomain);
+        EditText edtRemoteDir = dlgView.findViewById(R.id.edtRemoteDir);
+
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        edtUser.setText(prefs.getString(KEY_SMB_USER, ""));
+        edtPass.setText(prefs.getString(KEY_SMB_PASS, ""));
+        edtShare.setText(prefs.getString(KEY_SMB_SHARE, ""));
+        edtDomain.setText(prefs.getString(KEY_SMB_DOMAIN, ""));
+        edtRemoteDir.setText(prefs.getString(KEY_REMOTE_DIR, ""));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Edit SMB Credentials")
+                .setView(dlgView)
+                .setPositiveButton("Save", (d, w) -> {
+                    prefs.edit()
+                            .putString(KEY_SMB_USER, edtUser.getText().toString())
+                            .putString(KEY_SMB_PASS, edtPass.getText().toString())
+                            .putString(KEY_SMB_SHARE, edtShare.getText().toString())
+                            .putString(KEY_SMB_DOMAIN, edtDomain.getText().toString())
+                            .putString(KEY_REMOTE_DIR, edtRemoteDir.getText().toString())
+                            .apply();
+                    Toast.makeText(this, "SMB credentials saved", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** === Device Scan & Backup === */
+
     private void showAvailableDevices() {
-        showProgressUI("Starting scan...", 0, 253);
+        layoutScanProgress.setVisibility(View.VISIBLE);
         coordinator.scanDevicesWithProgress(
-                (status, cur, tot) -> showProgressUI(status, cur, tot),
+                (status, cur, tot) -> runOnUiThread(() -> {
+                    txtScanStatus.setText(status);
+                    progressScan.setMax(tot);
+                    progressScan.setProgress(cur);
+                }),
                 devices -> runOnUiThread(() -> {
-                    hideProgressUI();
+                    layoutScanProgress.setVisibility(View.GONE);
                     if (devices.isEmpty()) {
                         txtResult.setText("No devices found.");
                         return;
@@ -117,28 +236,12 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
-    /** Example manual backup trigger, can be customized further. */
-    private void manualBackup() {
-        List<Uri> folders = getBackupFolderUris();
-        coordinator.setBackupFolderUris(folders);
-        coordinator.setFileFilter(getFileFilter());
-        coordinator.startBackup(deviceManagerDeviceSelectionCallback(),
-                status -> runOnUiThread(() -> txtResult.setText(status))
-        );
-    }
-
-    /** Device selection callback UI helper. */
-    private DeviceManager.DeviceSelectionCallback deviceManagerDeviceSelectionCallback() {
-        return (devices, done) -> runOnUiThread(() -> showDeviceSelectionDialog(devices, done));
-    }
-
     private void showDeviceSelectionDialog(List<NetworkMonitor.DeviceInfo> devices,
                                            DeviceManager.DeviceChosenCallback done) {
-        if (devices.isEmpty()) { done.onDeviceChosen(null); return; }
         String[] items = new String[devices.size()];
         for (int i = 0; i < devices.size(); i++) {
             NetworkMonitor.DeviceInfo di = devices.get(i);
-            items[i] = di.ip + " (" + di.mac + ")" + (deviceManager.isWhitelisted(di.mac) ? " [Whitelisted]" : "");
+            items[i] = di.ip + " (" + di.mac + ")";
         }
         new AlertDialog.Builder(this)
                 .setTitle("Select Device")
@@ -147,36 +250,34 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** Loads user-selected backup folder URIs from prefs. */
-    private List<Uri> getBackupFolderUris() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String urisString = prefs.getString(KEY_BACKUP_FOLDERS, null);
-        List<Uri> uris = new ArrayList<>();
-        if (urisString != null && !urisString.trim().isEmpty()) {
-            for (String s : urisString.split(",")) {
-                try { uris.add(Uri.parse(s)); } catch (Throwable ignored) {}
-            }
-        }
-        return uris;
+    private void manualBackup() {
+        coordinator.setBackupFolderUris(new ArrayList<>(backupFolders));
+        coordinator.setFileFilter(getFileFilterFromPrefs());
+        coordinator.startBackup((devices, done) -> runOnUiThread(() -> showDeviceSelectionDialog(devices, done)),
+                status -> runOnUiThread(() -> txtResult.setText(status)));
     }
 
-    /** Loads file type filter from prefs. */
-    private List<String> getFileFilter() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String types = prefs.getString(KEY_BACKUP_FILE_FILTER, "");
-        return types.isEmpty() ?
-                new ArrayList<>() :
-                new ArrayList<>(Arrays.asList(types.split(",")));
-    }
+    /** === Misc === */
 
-    /** Request basic network permissions at runtime. */
     private void ensurePermissions() {
         String[] perms = {
                 Manifest.permission.INTERNET,
                 Manifest.permission.ACCESS_NETWORK_STATE,
                 Manifest.permission.ACCESS_WIFI_STATE
-                // Add any others needed for folder access, etc.
         };
         ActivityCompat.requestPermissions(this, perms, 1);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_PICK_FOLDER && resultCode == RESULT_OK && data != null) {
+            Uri uri = data.getData();
+            if (uri != null && !backupFolders.contains(uri)) {
+                backupFolders.add(uri);
+                saveBackupFoldersToPrefs();
+                refreshFolderListUI();
+            }
+        }
     }
 }

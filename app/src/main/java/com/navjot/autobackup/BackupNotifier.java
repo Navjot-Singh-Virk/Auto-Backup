@@ -4,12 +4,11 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.os.Build;
-
 import androidx.core.app.NotificationCompat;
 
 public class BackupNotifier {
-    private static final String CHANNEL_ID = "backup_status";
 
+    private static final String CHANNEL_ID = "backup_status";
     public static void notifyResult(Context ctx, int success, int total, String ip) {
         createChannel(ctx);
         NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)
@@ -26,7 +25,7 @@ public class BackupNotifier {
             NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Backup Status",
                     NotificationManager.IMPORTANCE_LOW);
             NotificationManager nm = ctx.getSystemService(NotificationManager.class);
-            nm.createNotificationChannel(channel);
+            if (nm != null) nm.createNotificationChannel(channel);
         }
     }
 }

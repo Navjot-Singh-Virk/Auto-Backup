@@ -11,9 +11,7 @@ import java.util.Set;
 /**
  * DeviceManager
  * -------------
- * Handles:
- *  - Whitelisted target MAC addresses (trusted PCs)
- *  - Caching the last selected device to allow headless automatic backups
+ * Handles whitelisted target MAC addresses, last chosen device caching.
  */
 public class DeviceManager {
 
@@ -21,7 +19,6 @@ public class DeviceManager {
     private static final String KEY_WHITELISTED_MACS = "WhitelistedMACs";
     private static final String KEY_LAST_IP = "LastChosenIP";
     private static final String KEY_LAST_MAC = "LastChosenMAC";
-
     private final Context context;
 
     /** Container for last chosen device, if available. */
@@ -34,7 +31,10 @@ public class DeviceManager {
     /** @return Set of whitelisted MAC addresses. */
     public Set<String> getWhitelistedMacs() {
         SharedPreferences prefs = getPrefs();
-        return new HashSet<>(prefs.getStringSet(KEY_WHITELISTED_MACS, new HashSet<>()));
+        Set<String> result = prefs.getStringSet(KEY_WHITELISTED_MACS, new HashSet<>());
+        Set<String> upperCaseSet = new HashSet<>();
+        for (String mac : result) upperCaseSet.add(mac.toUpperCase());
+        return upperCaseSet;
     }
 
     /** Returns true if MAC is in whitelist. */
@@ -87,8 +87,7 @@ public class DeviceManager {
 
     /** Callback for asking the user to choose a device from a list. */
     public interface DeviceSelectionCallback {
-        void onSelectDevice(List<NetworkMonitor.DeviceInfo> allDevices,
-                            DeviceChosenCallback done);
+        void onSelectDevice(List<NetworkMonitor.DeviceInfo> allDevices, DeviceChosenCallback done);
     }
 
     /** Callback for delivering the chosen device from UI to backend. */
