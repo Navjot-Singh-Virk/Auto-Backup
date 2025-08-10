@@ -7,63 +7,65 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
+
 import androidx.core.content.ContextCompat;
+
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
-/**
- * BackupService
- * ============
- * Background Android Service.
- * - Triggers automatic backups on a timer (30 min)
- * - Loads user-selected folders from shared prefs and runs via BackupCoordinator
- * - Avoids running more than one backup at a time
- */
 public class BackupService extends Service {
-
     private static final String TAG = "BackupService";
-    private static final long BACKUP_INTERVAL_MS = 30 * 60 * 1000L; // 30 minutes
+    private static final long BACKUP_INTERVAL_MS = 30 * 60 * 1000L;
     public static DeviceManager.DeviceSelectionCallback deviceSelectionCallback;
 
     private final Handler handler = new Handler();
-    private final Object backupLock = new Object();
     private boolean isBackupRunning = false;
-
+    private final Object backupLock = new Object();
     private BackupCoordinator coordinator;
 
-    // SMB shares and credentials — comes from your app/settings
-    private final String SMB_USER = "yourUsername";
-    private final String SMB_PASS = "yourPassword";
-    private final String SMB_DOMAIN = "";
-    private final String SMB_SHARE = "sharedfolder";
-    private final String REMOTE_DIR = "";
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        loadCoordinator();
+        handler.post(backupTask);
+    }
 
-    /** Loads all user-selected folder URIs from prefs for backup. */
+    private void loadCoordinator() {
+        SharedPreferences prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
+        String user = prefs.getString(MainActivity.KEY_SMB_USER, "yourUsername");
+        String pass = prefs.getString(MainActivity.KEY_SMB_PASS, "yourPassword");
+        String share = prefs.getString(MainActivity.KEY_SMB_SHARE, "sharedfolder");
+        String domain = prefs.getString(MainActivity.KEY_SMB_DOMAIN, "");
+        String remoteDir = prefs.getString(MainActivity.KEY_REMOTE_DIR, "");
+        coordinator = new BackupCoordinator(this, user, pass, domain, share, remoteDir,
+                getBackupFolderUris(), getFileFilter());
+    }
+
     private List<Uri> getBackupFolderUris() {
         SharedPreferences prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
         String urisString = prefs.getString(MainActivity.KEY_BACKUP_FOLDERS, "");
         List<Uri> uris = new ArrayList<>();
         if (!urisString.isEmpty()) {
             for (String s : urisString.split(",")) {
-                try { uris.add(Uri.parse(s)); } catch (Throwable ignored) {}
+                try { uris.add(Uri.parse(s)); } catch (Exception ignored) {}
             }
         }
         return uris;
     }
 
-    @Override
-    public void onCreate() {
-        super.onCreate();
-        coordinator = new BackupCoordinator(this, SMB_USER, SMB_PASS, SMB_DOMAIN, SMB_SHARE, REMOTE_DIR, getBackupFolderUris());
-        handler.post(backupTask);
+    private List<String> getFileFilter() {
+        SharedPreferences prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE);
+        String types = prefs.getString(MainActivity.KEY_BACKUP_FILE_FILTER, "");
+        return types.isEmpty() ? new ArrayList<>() : new ArrayList<>(Arrays.asList(types.split(",")));
     }
 
     private final Runnable backupTask = new Runnable() {
         @Override
         public void run() {
             if (!hasRequiredPermissions()) {
-                Log.w(TAG, "Missing permissions. Skipping automatic backup.");
-            } else {
+                Log.w(TAG, "Missing permissions. Skipping auto backup.");
+            } else if (!getBackupFolderUris().isEmpty()) {
                 startBackupIfIdle();
             }
             handler.postDelayed(this, BACKUP_INTERVAL_MS);
@@ -81,12 +83,12 @@ public class BackupService extends Service {
     private void startBackupIfIdle() {
         synchronized (backupLock) {
             if (isBackupRunning) {
-                Log.i(TAG,"Backup already running, skipping this cycle.");
+                Log.i(TAG, "Backup already running, skipping cycle.");
                 return;
             }
             isBackupRunning = true;
         }
-        coordinator.setBackupFolderUris(getBackupFolderUris());
+        loadCoordinator();
         coordinator.startBackup(deviceSelectionCallback, msg -> Log.i(TAG, msg));
         synchronized (backupLock) {
             isBackupRunning = false;
@@ -100,7 +102,5 @@ public class BackupService extends Service {
     }
 
     @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
+    public IBinder onBind(Intent intent) { return null; }
 }
