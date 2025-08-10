@@ -1,0 +1,57 @@
+## 📌 **Architecture & Dependency Diagram**
+
+```plaintext
+                        +---------------------+
+                        |     MainActivity     || - Background timer   |
+        |             |                                    |         | - Calls BackupCoord.|
+        |             |                                    |         | - Concurrent safety  |
+        v             v                                    |         +----------+----------+
+ +---------------+ +--------------+                        |                    |
+ |NetworkMonitor | |FileBackupMgr |                        Manual               Automatic
+ |---------------| |--------------|                        Backup                Backup
+ | - Detect wifi | | - List files |                        calls                 calls
+ | - Detect host.| | - Skip unchanged                        |                     |
+ | - Scan subnet (ping + ARP) |  files                       |                     |
+ | - Returns List |    - Upload files via SMBJ      |                     |
+ +----+----------+                                             |                     |
+      |                                                      +--------+-----------+
+      |                                                      |        |
+      |                                                      v        v
+      |                                               +------------------+
+      |                                               |     SmbjClient    |
+      |                                               |------------------|
+      +-----------------------------------------------| - SMB connection |
+                                                      | - Auth, upload   |
+                                                      +------------------+
+```
+
+***
+
+### Explanation
+
+- **MainActivity**: The user interface for starting manual backups, viewing devices, and managing whitelist. It uses `BackupCoordinator` for the backup logic.
+- **BackupCoordinator**: The heart of backup logic common to manual and automatic triggers. Responsible for:
+  - Invoking `NetworkMonitor` to find devices on the current subnet (Wi-Fi or hotspot).
+  - Filtering devices using `DeviceManager`'s whitelist.
+  - Handling user device selection if multiple or no whitelisted devices.
+  - Starting file scanning and upload via `FileBackupManager`.
+- **NetworkMonitor**: Detects active Wi-Fi or hotspot, dynamically determines subnet, performs parallel ping+ARP scans to find devices on the network.
+- **DeviceManager**: Maintains and retrieves MAC whitelist, caches last selected trusted device for headless backups.
+- **FileBackupManager**: Selects files to backup, skips unchanged files, uploads each via SMB with retry logic.
+- **SmbjClient**: Handles low-level SMB protocol operations to connect, authenticate, and transfer files to the Windows PC.
+- **BackupService**: Runs automatically every 30 minutes to call `BackupCoordinator` for scheduled backups. Ensures permission validation and concurrency control.
+
+***
+
+### Benefits of This Architecture
+
+- **Separation of Concerns**: Each class has well-defined responsibility, facilitating easier maintenance and testing.
+- **Reusability**: `BackupCoordinator` centralizes backup logic for manual and automatic use, avoiding duplication.
+- **Dynamic & Secure Device Discovery**: `NetworkMonitor` with merged ping+ARP and dynamic subnet detection improves scanning reliability. `DeviceManager` adds a whitelist safeguard.
+- **Robust Backup Process**: Retry logic in `FileBackupManager` and SMB upload robustness in `SmbjClient`.
+- **User Interaction Support**: Through callbacks, user can manage device selection and whitelisting seamlessly.
+- **Permission Aware & Concurrent Safe**: Service and UI perform permission checks and avoid overlapping backups.
+
+***
+
+If you want, I can also provide you with an updated flowchart or sequence diagrams for automatic and manual backup flows based on this architecture to visualize interactions and method calls in detail. Let me know!

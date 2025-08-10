@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Select Backup Folder Button -->
+        <Button
+            android:id="@+id/btnSelectFolder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Select Backup Folder"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Show Available Devices Button -->
+        <Button
+            android:id="@+id/btnAvailableDevices"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Show Available Devices"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Backup Now Button -->
+        <Button
+            android:id="@+id/btnBackup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Backup Now"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Status TextView -->
+        <TextView
+            android:id="@+id/txtResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Status messages will appear here..."
+            android:textSize="16sp"
+            android:background="#EEEEEE"
+            android:padding="16dp"
+            android:scrollbars="vertical" />
+
+    </LinearLayout>
+</ScrollView>

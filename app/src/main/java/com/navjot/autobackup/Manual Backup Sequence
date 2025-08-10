@@ -1,0 +1,64 @@
+ ## 📌 **Manual Backup Sequence Diagram**
+ 
+ ```plaintext
+ User                 MainActivity               NetworkMonitor            DeviceManager       FileBackupManager       SmbjClient
+  |                       |                           |                         |                     |                     |
+  | Clicks "Backup"       |                           |                         |                     |                     |
+  |---------------------->| manualBackup()            |                         |                     |                     |
+  |                       | Check Wi-Fi/Hotspot ------> isOnWifi()/isHotspotOn()|                     |                     |
+  |                       |                           | Return result           |                     |                     |
+  |                       |                           |                         |                     |                     |
+  |                       | scanSubnetAsync() --------> scanSubnetAsync()       |                     |                     |
+  |                       |                           | detectSubnetPrefix()    |                     |                     |
+  |                       |                           | Ping IP range           |                     |                     |
+  |                       |                           | getArpDevices()         |                     |                     |
+  |                       |                           | Return List----------------------------------------------|
+  |                       |                           |                         |                     |                     |
+  |                       | Filter whitelist ---------> getWhitelistedDevices() |                     |                     |
+  |                       |                           | Return matched list     |                     |                     |
+  |                       |                           |                         |                     |                     |
+  |     One match?        |---------------------------YES---------------------->|                     |                     |
+  |                       | startBackupToIp()         |                         |                     |                     |
+  |                       | Create FileBackupManager -------------------------->| constructor         |                     |
+  |                       | filesToBackup()           |                         |                     |                     |
+  |                       |-------------------------->| getFilesToBackup()      |                     |                     |
+  |                       |                           | Return List       |                     |                     |
+  |                       | backupFiles()             |                         |                     |                     |
+  |                       |-------------------------->| backupFiles()           |                     |                     |
+  |                       |                           | For each file:          |                     |                     |
+  |                       |                           | uploadFile(...)         |                     |-------------------->|
+  |                       |                           |                         |                     | Connect SMB         |
+  |                       |                           |                         |                     | Authenticate SMB    |
+  |                       |                           |                         |                     | Open/create file    |
+  |                       |                           |                         |                     | Stream contents     |
+  |                       |                           |                         |                     | Close file          |
+  |                       |                           |                         |1**, shows selection dialog → optionally whitelist selected device.
+ 
+ 5. **Backup Execution**
+    - Creates a `FileBackupManager` instance for the selected device’s IP.
+    - Calls `getFilesToBackup()` to list files in backup folder.
+    
+ 6. **File Transfer Loop**
+    - For each file:
+      - Calls `smbClient.uploadFile()`.
+      - **SmbjClient**:
+        - Connects to SMB server at given IP.
+        - Authenticates with credentials.
+        - Opens or creates remote file in share.
+        - Streams local file to remote server.
+        - Closes streams and returns success/fail.
+ 
+ 7. **Completion**
+    - MainActivity updates `txtResult` with "Backup complete" or an error message.
+ 
+ ***
+ 
+ ## 🔹 Key Notes:
+ - In **automatic backup** (`BackupService`), the flow is similar, but the trigger is from a timer instead of a button click, and `deviceSelectionCallback` is UI-driven only if needed.
+ - Both manual and automatic backups use the **same logic pipeline**:
+   `NetworkMonitor` → `DeviceManager` → `FileBackupManager` → `SmbjClient`.
+ 
+ ***
+ 
+ If you want, I can also map **the automatic backup flow** in a similar sequence diagram, so we can see both side-by-side for comparison.  
+ Do you want me to prepare that too?

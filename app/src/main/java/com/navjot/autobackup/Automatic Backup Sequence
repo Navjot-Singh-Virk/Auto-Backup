@@ -1,0 +1,78 @@
+## 📌 **Automatic Backup Sequence Diagram**
+
+```plaintext
+BackupService      NetworkMonitor           DeviceManager         (UI via DeviceSelectionCallback)   FileBackupManager        SmbjClient
+     |                  |                        |                             |                         |                        |
+     |  (wakes up)      |                        |                             |                         |                        |
+     |----------------->| isOnWifi()/isHotspotOn()                             |                         |                        |
+     |                  |   Subnet check                                       |                         |                        |
+     |                  |-----------------> scanSubnetAsync()                  |                         |                        |
+     |                  |   detectSubnetPrefix()                               |                         |                        |
+     |                  |   Ping IP range, getArpDevices()                     |                         |                        |
+     |                  |                   |                         |                        |
+     |                  |                                                      |                         |                        |
+     |----------------->| getWhitelistedDevices(devices)                       |                         |                        |
+     |                  | (filtered list)                                      |                         |                        |
+     |    1 match?      |----------------------------YES---------------------> |                         |                        |
+     |                  |                                                      |                         |                        |
+     | executeBackupSafely(ip)                                                 |                         |                        |
+     |----------------->|                                                     |                         |                        |
+     |                  | Instantiate FileBackupManager                        |                         |                        |
+     |                  | getFilesToBackup()                                   |                         |                        |
+     |                  |-------------List-----------------------------> |                         |                        |
+     |                  |                                                      |                         |                        |
+     |                  | backupFiles(files)                                   |                         |                        |
+     |                  |---For each file: uploadFile()----------------------->|                         |----------------------->|
+     |                  |                                                      |  Connect/auth SMB       |                        |
+     |                  |                                                      |  Write file             |                        |
+     |                  |                                                      |  Close/file success     |1 matches  |---------------------NO-----------------------------> | DeviceSelectionCallback |                        |
+     |  (no UI?)        |                                                      | (if UI active)          |                        |
+     | (skip backup)    |                                                      | Show selection dialog   |                        |
+     |                  |                                                      | User selects device     |                        |
+     |                  |                                                      |-> backup as above       |                        |
+     |                  |                                                      |                         |                        |
+     | (No UI active)   | (Wait, skip backup)                                  |                         |                        |
+     |                  |                                                      |                         |                        |
+```
+
+***
+
+## **Detailed Explanation**
+
+- **1. BackupService wakes up** (every 30 min, or as scheduled).
+- **2. Checks network** via `NetworkMonitor` – is Wi-Fi or hotspot up?
+- **3. Scans subnet** using current device IP/subnet for reachable devices (ping, ARP table).
+- **4. Gets whitelist** from `DeviceManager` and filters discovered devices.
+- **5. If exactly one whitelisted device:**
+  - Starts backup immediately — same as manual flow.
+  - Uses `FileBackupManager` and `SmbjClient` for actual SMB file write, with retry and concurrency lock.
+- **6. If zero or more than one whitelisted devices** (ambiguous):
+  - If **UI is active** and a `DeviceSelectionCallback` is set (e.g. app in foreground), triggers dialog, user picks one, backup proceeds.
+  - If **no UI** (app in background/no callback set), backup is **skipped** for this cycle but will try again later.
+
+## **Concurrency/Robustness Features**
+
+- Ensures only one backup runs at a time: background (auto) and manual use a lock (`backupLock`) to avoid conflicts.
+- If manual and automatic triggers occur simultaneously, only the first will proceed; the other is skipped/logged.
+
+## **Difference from Manual Backup**
+
+|                    | Manual Backup              | Automatic Backup (Service)         |
+|--------------------|---------------------------|------------------------------------|
+| Who triggers?      | User via button in MainActivity | Timer in `BackupService`           |
+| When?              | On user demand            | Every 30 minutes (configurable)    |
+| Device selection   | Always has UI avail, dialogs passive if needed | Only when UI/foreground exists; else skips if ambiguous match |
+| Result feedback    | UI (txtResult) updates immediately | None if headless, else via callback/UI |
+| Concurrency guard  | Lock with auto backup     | Lock with manual backup            |
+
+***
+
+## **Summary**
+
+**This architecture ensures:**
+- No backup unless a trusted (whitelisted) PC is definitely present.
+- Graceful, user-involved resolution if ambiguity/no device found (when UI available).
+- Robust handling of automatic/manual concurrency.
+- Adaptivity to dynamic network subnets, permission state, and network errors.
+
+***

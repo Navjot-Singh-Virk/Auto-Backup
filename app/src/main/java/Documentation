@@ -1,0 +1,128 @@
+Alright ✅ — here’s a clear **visual diagram** of your app’s workflow showing how each class interacts in both the **manual** and **automatic backup flows**.
+
+***
+
+## 📌 **Architecture & Data Flow Diagram**
+
+```plaintext
+ ┌─────────────────┐        User Interaction
+ │ MainActivity     │
+ │----------------- │       -------------------------
+ │ - btnAvailable   │------> Show Detected Devices
+ │ - btnBackup      │------> Trigger Manual Backup
+ │ - txtResult      │
+ └───────┬─────────┘
+         │
+         │ UI Callback
+         ▼
+ ┌─────────────────┐
+ │ NetworkMonitor   │
+ │----------------- │
+ │ Detect Wi-Fi /   │
+ │ Hotspot state    │
+ │ Detect Subnet    │
+ │ Scan Subnet IPs  │
+ │ ARP Table -> MAC │
+ └───────┬─────────┘
+         │ List
+         ▼
+ ┌───────────────────────┐
+ │ DeviceManager          │
+ │------------------------│
+ │ Load Whitelisted MACs  │
+ │ Filter Devices         │
+ │ Add to Whitelist       │
+ └────────┬──────────────┘
+          │
+          │ Whitelisted Device(s)
+          ▼
+     ┌─────────────┐
+     │  One Match? │──── YES ───────► Proceed to Backup
+     └──────┬──────┘
+            │NO
+            ▼
+ ┌─────────────────────────┐
+ │ User Chooses from List   │
+ │ [Optional: Whitelist]    │
+ └──────────┬──────────────┘
+            │ Selected Device
+            ▼
+ ┌─────────────────────────┐
+ │ FileBackupManager       │
+ │-------------------------│
+ │ Get Files to Backup     │
+ │ Retry Failed Uploads    │
+ │ Calls SmbjClient         │
+ └──────────┬──────────────┘
+            │ For each file
+            ▼
+ ┌─────────────────────────┐
+ │ SmbjClient (SMB2/3)     │
+ │-------------------------│
+ │ Connect to PC SMB Share │
+ │ Authenticate            │
+ │ Overwrite/Write File    │
+ └─────────────────────────┘
+```
+
+***
+
+## **Flow Breakdown**
+
+### **1. Automatic Backup (Background)**
+- `BackupService` wakes up every **30 min** (configurable)
+- It calls `NetworkMonitor`:
+  - If **Wi-Fi** or **Hotspot** is ON → scan subnet.
+  - Gets list of `(IP, MAC)` pairs.
+- `DeviceManager`:
+  - Filters against whitelist.
+  - If **1 device** → backup immediately.
+  - If **0 or >1** devices → calls `deviceSelectionCallback` (only works if UI is active).
+- Runs `FileBackupManager` for the target device.
+
+***
+
+### **2. Manual Backup (User Trigger from MainActivity)**
+- User presses `btnBackup`.
+- MainActivity:
+  - Calls `NetworkMonitor.scanSubnetAsync()`.
+  - Uses `DeviceManager` to filter.
+  - If 1 match → proceed straight to backup.
+  - Else → show dialog of `DeviceInfo` for the user to pick → store in whitelist (optional).
+- `FileBackupManager` runs with the chosen device’s IP.
+
+***
+
+### **3. Device Detection Logic**
+- Uses **dynamic subnet detection** from current Wi-Fi/Hotspot IP.
+- Pings all IPs in that subnet (`*.2` to `*.254`).
+- Reads Android’s `/proc/net/arp` file for MAC mapping.
+- Filters devices whose MAC is in whitelist.
+
+***
+
+### **4. Backup Execution**
+- `FileBackupManager` selects files & retries uploads (up to 3 times).
+- `SmbjClient` connects to SMB share:
+  - Auth with configured **username/password**.
+  - Writes file (overwrite if exists).
+
+***
+
+## 🔹 **Advantages of Current Design**
+- Works for **Wi-Fi** and **Hotspot** scenarios.
+- Avoids accidental backup to unknown devices (MAC whitelist).
+- User can **add MAC to whitelist** after discovery.
+- Supports both **manual** and **scheduled** backups.
+- Uses **dynamic subnet detection** instead of hardcoding IP range.
+- Handles SMB file uploads with retries.
+
+***
+
+## 🔹 **Potential Future Enhancements**
+- Show progress bar during scanning/backups in UI.
+- Store last backup time per file and skip unchanged (already partly supported).
+- Better handling when **UI is not active** but user interaction is required for multiple connected devices.
+- A notification to show backup success/failure from background service.
+
+***
